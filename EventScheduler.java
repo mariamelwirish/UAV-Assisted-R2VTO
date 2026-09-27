@@ -1,32 +1,11 @@
-import java.util.Queue;
 import java.util.Comparator;
 import java.util.PriorityQueue;
+import java.util.Queue;
 
-class Event {
-    enum EventType {VEHICLE_ARRIVAL, TASK_ARRIVAL}
 
-    public static final Event.EventType EventType = null; 
-
-    EventType type;
-    double time;
-    final long id;
-
-    Event(long id,EventType type, double time) {
-        this.type = type;
-        this.time = time;
-        this.id = id;
-        if(type == EventType.VEHICLE_ARRIVAL) {
-            // System.out.println("#Event " + this.id + ": vehicle arrival at time " + this.time);
-        } else if(type == EventType.TASK_ARRIVAL) {
-            // System.out.println("#Event " + this.id + ": task arrival at time " + this.time);
-        } 
-    }
-
-}
-
-class EventScheduler {
-    Queue<Event> eventQueue;
-    long events;
+public class EventScheduler {
+    static Queue<Event> eventQueue;
+    static long events;
 
     EventScheduler() {
         eventQueue = new PriorityQueue<>(Comparator.comparingDouble((Event e) -> e.time).thenComparingLong(e -> e.id)); // if it happens 2 events @ same time -> take one of them and add a small epsilon.
@@ -40,6 +19,10 @@ class EventScheduler {
 
         double firstTaskArrival = Metrics.exp(Simulator.rng, Simulator.taskArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.TASK_ARRIVAL, firstTaskArrival));
+        this.events++;
+
+        double firstUAVArrival = Metrics.exp(Simulator.rng, Simulator.UAVArrivalRate);
+        eventQueue.add(new Event(this.events, Event.EventType.UAV_ARRIVAL, firstUAVArrival));
         this.events++;
     }
 
@@ -59,6 +42,12 @@ class EventScheduler {
         this.events++;
     }
 
+    void scheduleNextUAVArrival(Event currentEvent) {
+        double nextUAVArrival = currentEvent.time + Metrics.exp(Simulator.rng, Simulator.UAVArrivalRate);
+        eventQueue.add(new Event(this.events, Event.EventType.UAV_ARRIVAL, nextUAVArrival));
+        this.events++;
+    }
+
     Event processNextEvent() {
         Event nextEvent = eventQueue.poll();
 
@@ -66,7 +55,9 @@ class EventScheduler {
             scheduleNextTaskArrival(nextEvent);
         } else if(nextEvent.type == Event.EventType.VEHICLE_ARRIVAL && ((Simulator.totalTasks + 1) < Simulator.maxNumTasks || !Simulator.rsu.isBufferEmpty())) {
             scheduleNextVehicleArrival(nextEvent);
-        }
+        } else if (nextEvent.type == Event.EventType.UAV_ARRIVAL && ((Simulator.totalTasks + 1) < Simulator.maxNumTasks || !Simulator.rsu.isBufferEmpty())) {
+            scheduleNextUAVArrival(nextEvent);
+        } 
 
         return nextEvent;
     }

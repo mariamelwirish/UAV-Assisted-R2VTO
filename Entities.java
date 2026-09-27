@@ -19,20 +19,24 @@ class Vehicle {
     double processingCapacity; // (inst/s)
     boolean isCooperative; 
     double remainingProcessingCapacity; // = processingCapacity * residenceTime (inst)
+    double arrivalLocation;
+    boolean isServed;
 
     Vehicle(double arrivalTime, double processingCapacity, boolean isCooperative) {
         this.id = count++;
         this.arrivalTime = arrivalTime;
         this.speed = generateSpeed();
         this.processingCapacity = processingCapacity;
-        this.residenceTime = RSU.coverageRange / speed;
-        this.departureTime = arrivalTime + residenceTime;
+        // this.residenceTime = RSU.coverageRange / speed;
+        // this.departureTime = arrivalTime + residenceTime;
         this.isCooperative = isCooperative; // MEETING: ARE WE THE ONES DOING THE PROBABILITY? OR IS THERE A GIVEN ONE? -> Input paramater, not generated.
-        this.remainingProcessingCapacity = processingCapacity * residenceTime;
+        // this.remainingProcessingCapacity = processingCapacity * residenceTime;
+        this.arrivalLocation = Simulator.maxPositionVehicle;
+        this.isServed = false;
 
-        System.out.println(String.format("MC = %10.5f: #Vehicle %d%s, processing capacity = %.1e, speed = %.5f, residence time = %f, departure time = %.5f", 
-            this.arrivalTime, this.id, (isCooperative ? " cooperative" : " non-cooperative"), 
-            this.processingCapacity, this.speed, this.residenceTime, this.departureTime));
+        // System.out.println(String.format("MC = %10.5f: #Vehicle %d%s, processing capacity = %.1e, speed = %.5f, speed m/s =%.5f, residence time = %f, departure time = %.5f", 
+        //     this.arrivalTime, this.id, (isCooperative ? " cooperative" : " non-cooperative"), 
+        //     this.processingCapacity, this.speed, this.speed, this.residenceTime, this.departureTime));
     }
     
     double generateSpeed() {
@@ -44,8 +48,15 @@ class Vehicle {
     }
 
     boolean canProcessTask(Task task) {
-        return task.size <= remainingProcessingCapacity;
+        double location = getLocation();
+        System.out.println("Vehicle " + this.id + " Location " + location);
+        return task.size / processingCapacity <= ((location + Simulator.rsuCoverageRange / 2) / speed);
+        // return task.size <= remainingProcessingCapacity;
         // return task.size / processingCapacity <= residenceTime;
+    }
+
+    double getLocation() {
+        return Metrics.getXPosition(arrivalLocation, arrivalTime, speed);
     }
 }
 
@@ -80,8 +91,8 @@ class Task {
         this.status = Status.QUEUED;
         this.isExpired = false;
 
-        System.out.println(String.format("MC = %10.5f: #Task %d size = %d, deadline = %.5f, expiry time = %.5f", 
-            this.arrivalTime, this.id, this.size, this.deadline, this.expiryTime));
+        // System.out.println(String.format("MC = %10.5f: #Task %d size = %d, deadline = %.5f, expiry time = %.5f", 
+        //     this.arrivalTime, this.id, this.size, this.deadline, this.expiryTime));
     }
 }
 
@@ -133,10 +144,18 @@ class RSU {
             return;
         }
         buffer.add(task);
-        if(buffer.size() == 1) {
-            task.status = Task.Status.HoL;
-            task.HoLTime = task.arrivalTime;
-        } else {
+        // if(buffer.size() == 1) {
+        //     task.status = Task.Status.HoL;
+        //     task.HoLTime = task.arrivalTime;
+        // } else {
+        //     task.status = Task.Status.QUEUED;
+        // }
+        Task head = buffer.peek();          // whoever is head NOW, after insertion
+        if (head.HoLTime == 0.0) {          // became head and was never stamped
+            head.status = Task.Status.HoL;
+            head.HoLTime = Simulator.currentTime;
+        }
+        if (task != head) {
             task.status = Task.Status.QUEUED;
         }
     }
@@ -144,7 +163,7 @@ class RSU {
     void offloadTaskToVehicle(Task task, Vehicle vehicle) {
         buffer.remove(task); 
         task.vehicleId = vehicle.id;
-        task.releaseTime = vehicle.arrivalTime;
+        task.releaseTime = Simulator.currentTime;
         task.serviceTime = task.releaseTime - task.HoLTime;
         task.queueTime = task.HoLTime - task.arrivalTime;
         if(task.releaseTime > task.expiryTime && !task.isExpired) {
@@ -153,9 +172,10 @@ class RSU {
         }
         Simulator.totalServiceTime += task.serviceTime;
         vehicle.remainingProcessingCapacity -= task.size;
+        vehicle.isServed = true;
 
-        System.out.println(String.format("MC = %10.5f: #Task %d offloaded to #Vehicle %d, queue time = %.5f, service time = %.5f", 
-            task.releaseTime, task.id, vehicle.id, task.queueTime, task.serviceTime));
+        // System.out.println(String.format("MC = %10.5f: #Task %d offloaded to #Vehicle %d, queue time = %.5f, service time = %.5f", 
+        //     task.releaseTime, task.id, vehicle.id, task.queueTime, task.serviceTime));
         
         if(!isBufferEmpty()) {
             Task nextTask = buffer.peek();
@@ -173,3 +193,58 @@ class RSU {
     }
 }
 
+// UAV
+class UAV {
+    static int count = 1;
+    final int id;
+    double location;
+    double coverageRange;
+    double speed;
+    double arrivalTime;
+    double stopTime; // Stope time here = the time it reaches the RSU's CR + 1/2 its CR.
+    double stopLocation;
+    double arrivalLocation;
+    
+    UAV(double arrivalTime,  double coverageRange) {
+        this.id = count++;
+        this.arrivalTime = arrivalTime;
+        this.coverageRange = coverageRange;
+        this.location = 0;
+        this.speed = generateSpeed();
+        this.arrivalLocation = Simulator.maxPositionUAV;
+        this.stopLocation = getStopLocation();
+        this.stopTime = getStopTime();
+       
+
+        // System.out.println(String.format("MC = %10.5f: #UAV %d Speed = %10.5f, Coverage Range = %10.5f, Stop Offloading Time = %10.5f, Stopping Location = %10.5f", 
+        //     this.arrivalTime, this.id, this.speed, this.coverageRange, this.stopTime, this.stopLocation));
+    }
+
+    double generateSpeed() {
+        double speed;
+        do {
+            speed = Simulator.avgUAVSpeed + Simulator.stdUAVSpeed * Simulator.rng.nextGaussian();
+        } while (speed < Simulator.minUAVSpeed || speed > Simulator.maxUAVSpeed);
+        return speed;
+    }
+
+    double getStopLocation() {
+        return 0;
+    }
+
+    double getStopTime() {
+        return this.arrivalTime + (this.arrivalLocation - this.stopLocation) / this.speed;
+    }
+
+    double getLocation() {
+        return Metrics.getXPosition(this.arrivalLocation, this.arrivalTime, this.speed);
+    }
+
+    double getRSUcontactLocation() {
+        return Simulator.rsuCoverageRange / 2 + coverageRange / 2;
+    }
+
+    // long vehiclesInRange() {
+
+    // }
+}

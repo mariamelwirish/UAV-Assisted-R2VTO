@@ -74,4 +74,54 @@ public class Metrics {
     static double meanNumberOfReleasedTasks(long releasedTasks, long releaseEvents) {
         return (double) releasedTasks / releaseEvents;
     }
+
+            /******************** Converting Speeds ********************/
+    // static double convertToKilometersPerHour(double metersPerSecond) {
+    //     return metersPerSecond * 18 / 5;
+    // }
+
+    // static double convertToMetersPerSecond(double KilometersPerHour) {
+    //     return KilometersPerHour * 5 / 18;
+    // }
+
+    static double getXPosition(double arrivalLocation, double arrivalTime, double speed) { // entry position - distance (as it is approaching x = 0)
+        return arrivalLocation - ((Simulator.currentTime - arrivalTime) * speed);
+    }
+
+    static double contactTime(Vehicle vehicle, UAV uav) {
+        double gap = uav.getLocation() - vehicle.getLocation();
+        double relativeSpeed = getRelativeSpeed(vehicle, uav);
+         double contactDistance = uav.coverageRange / 2; 
+        
+        if(Math.abs(gap) > uav.coverageRange / 2) {
+            if(gap < 0) { // uav is ahead.
+                if(relativeSpeed >= 0) return -1; 
+                double remainingDistance = Math.abs(gap) - uav.coverageRange / 2;
+                double timeNeeded = Math.abs(remainingDistance / relativeSpeed);
+                double absoluteTime = Simulator.currentTime + timeNeeded;
+                double tVehAtEdge = vehicle.arrivalTime + (vehicle.arrivalLocation - Simulator.rsuCoverageRange / 2) / vehicle.speed;
+                if (absoluteTime <= uav.getStopTime() && absoluteTime <= tVehAtEdge) return absoluteTime;
+            } else if (gap > 0) { // vehicle is ahead.
+                if(relativeSpeed <= 0) return -1;
+                double remainingDistance = Math.abs(gap) - uav.coverageRange / 2;
+                double timeNeeded = Math.abs(remainingDistance / relativeSpeed);
+                double absoluteTime = Simulator.currentTime + timeNeeded;
+                double tVehAtEdge = vehicle.arrivalTime + (vehicle.arrivalLocation - Simulator.rsuCoverageRange / 2) / vehicle.speed;
+                if (absoluteTime <= uav.getStopTime() && absoluteTime <= tVehAtEdge) return absoluteTime;
+            } else { // in contact.
+                return Simulator.currentTime;
+            }
+        } else {
+            return Simulator.currentTime;
+        }
+        return -1;
+    }
+
+    // Getting relative speed of Vehicle and UAV.   
+        // -ve means UAV is slower than vehicle.
+        // +ve means UAV is faster than vehicle.
+        // 0 means same speed.
+    static double getRelativeSpeed(Vehicle vehicle, UAV uav) {
+        return uav.speed - vehicle.speed;
+    }
 }

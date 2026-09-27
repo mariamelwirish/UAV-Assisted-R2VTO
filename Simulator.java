@@ -2,16 +2,24 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
 public class Simulator {
+    static double currentTime;
+    static List<Vehicle> activeVehicles = new ArrayList<>();
+    static List<UAV> activeUAVs = new ArrayList<>();
+
+
     enum toVary{
         PC,
         VEHICLE_ARRIVAL_RATE,
         TASK_ARRIVAL_RATE,
-        MAX_TASK_PROCESSING_CAPACITY
+        MAX_TASK_PROCESSING_CAPACITY,
+        UAV_ARRIVAL_RATE
     }
 
     static Random rng = new Random(12345);
@@ -32,11 +40,19 @@ public class Simulator {
     static long minTaskSize = 10_000_000L; // (inst)
     static long maxTaskSize = 5_000_000_000L; // (inst)
     // static long maxNumTasks = 1_000_000L; // (tasks)
-    static long maxNumTasks = 100000; // (tasks)
+    static long maxNumTasks = 10; // (tasks)
 
     // RSU-related data.
     static int rsuBufferCapacity = 50; // (tasks)
     static double rsuCoverageRange = 1000.0; // (m)
+
+    // UAV-related data.
+    static double minUAVSpeed = 25; // (m/s)
+    static double maxUAVSpeed = 50; // (m/s)
+    static double uavCoverageRange = 1000;
+    static double UAVArrivalRate;
+    static double avgUAVSpeed;
+    static double stdUAVSpeed;
 
     // For metrics collection.
     static long totalTasks = 0;
@@ -50,13 +66,19 @@ public class Simulator {
     static double areaUnderCurveNs = 0;
     static double totalSimulationTime = 0;
     static long releaseOpportunities;
+    static long totalUAVs = 0;
     static Set<String> initializedOutputFiles = new HashSet<>();
 
     static RSU rsu;
 
     static toVary parameterToVary;
 
-    void start(double probabilityOfCooperation, double vehicleArrivalRate, double avgVehicleSpeed, double stdVehicleSpeed, double taskArrivalRate, long maxTaskProcessingCapacity, toVary parameterToVary) {
+    static double maxPositionVehicle = rsuCoverageRange / 2 + uavCoverageRange;
+    static double maxPositionUAV = rsuCoverageRange / 2 + uavCoverageRange / 2;
+
+
+
+    void start(double probabilityOfCooperation, double vehicleArrivalRate, double avgVehicleSpeed, double stdVehicleSpeed, double taskArrivalRate, long maxTaskProcessingCapacity, double UAVArrivalRate, double avgUAVSpeed, double stdUAVSpeed, toVary parameterToVary) {
         resetRunState();
 
         if (maxTaskProcessingCapacity <= minTaskProcessingCapacity) {
@@ -81,6 +103,9 @@ public class Simulator {
         Simulator.stdVehicleSpeed = stdVehicleSpeed;
         Simulator.taskArrivalRate = taskArrivalRate;
         Simulator.maxTaskProcessingCapacity = maxTaskProcessingCapacity;
+        Simulator.UAVArrivalRate = UAVArrivalRate;
+        Simulator.avgUAVSpeed = avgUAVSpeed;
+        Simulator.stdUAVSpeed = stdUAVSpeed;
         Simulator.parameterToVary = parameterToVary;
 
         EventScheduler eventScheduler = new EventScheduler();
@@ -92,17 +117,19 @@ public class Simulator {
         rsu = new RSU(rsuBufferCapacity, rsuCoverageRange, RSU.SchedulingPolicy.FCFS, false);
 
         while(!eventScheduler.isEmpty()) {
+            currentTime = currentEvent.time;
             areaUnderCurveNs += rsu.getBufferSize() * (currentEvent.time - previousEventTime); // DOUBLE CHECK THAT!!
             if (currentEvent.type == Event.EventType.TASK_ARRIVAL) {
                 double time = currentEvent.time;
                 long taskSize = minTaskSize + (long)(rng.nextDouble() * (maxTaskSize - minTaskSize));
                 // long taskDeadline = (long) (minTaskDeadline + (long)(rng.nextDouble() * (maxTaskDeadline - minTaskDeadline)));
 
-                double taskDeadlineRate = 1.0 / 20.0; 
+                double taskDeadlineRate = 1.0 / 25.0; 
                 double u = rng.nextDouble();
                 double taskDeadline = -Math.log(1.0 - u * (1.0 - Math.exp(-taskDeadlineRate * maxTaskDeadline))) / taskDeadlineRate;
 
                 Task newTask = new Task(time, taskSize, taskDeadline);
+                System.out.println("MC = " + String.format("%.3f", currentTime)  + " Task " + newTask.id + " arrived to the System. Deadline = " + newTask.deadline + ". Expiry Time = " + newTask.expiryTime);
 
                 totalTasks++;
                 if(!rsu.isBufferFull()) {
@@ -118,8 +145,36 @@ public class Simulator {
                 boolean isCooperative = (probabilityOfCooperation == 1.0 ? true: rng.nextDouble() < probabilityOfCooperation);
 
                 Vehicle newVehicle = new Vehicle(time, taskProcessingCapacity, isCooperative);
-
                 totalVehicles++;
+
+                activeVehicles.add(newVehicle);
+
+                System.out.println("MC = " + String.format("%.3f", currentTime) + " Vehicle " + newVehicle.id + " arrived on the road.");
+
+                for(UAV uav : activeUAVs) {
+                    boolean willContact = (Metrics.contactTime(newVehicle, uav) >= 0);
+                    if(!willContact) continue;
+
+                    EventScheduler.eventQueue.add(new Event(EventScheduler.events, Event.EventType.VEHICLE_UAV_ENTRANCE, Metrics.contactTime(newVehicle, uav), newVehicle, uav));
+                    EventScheduler.events++;
+                }
+
+                double RSU_entrance_time = currentTime + (newVehicle.arrivalLocation -  rsuCoverageRange / 2) / newVehicle.speed;
+
+                EventScheduler.eventQueue.add(new Event(EventScheduler.events, Event.EventType.VEHICLE_RSU_ENTRANCE, RSU_entrance_time, newVehicle));
+                EventScheduler.events++;
+
+            } else if(currentEvent.type == Event.EventType.VEHICLE_RSU_ENTRANCE) {
+                Vehicle newVehicle = currentEvent.vehicle;
+                System.out.println("MC = " + String.format("%.3f", currentTime) + " Vehicle " + newVehicle.id + " enters RSU's Coverage Range now!");
+
+                activeVehicles.remove(newVehicle);
+                if(newVehicle.isServed) {
+                    previousEventTime = currentEvent.time;
+                    currentEvent = eventScheduler.processNextEvent();
+                    continue;
+                }
+
                 Task taskToProcess = rsu.getHoLTask();
 
                 if(taskToProcess != null) {
@@ -130,6 +185,9 @@ public class Simulator {
                     if(taskToProcess != null && newVehicle.isCooperative && newVehicle.canProcessTask(taskToProcess)) {
                         rsu.offloadTaskToVehicle(taskToProcess, newVehicle);
                         tasksOffloaded++;
+                        System.out.println(String.format("MC = %.3f RSU offloaded #Task %d to #Vehicle %d, queue time = %.5f, service time = %.5f", 
+                            taskToProcess.releaseTime, taskToProcess.id, newVehicle.id, taskToProcess.queueTime, taskToProcess.serviceTime));
+                        newVehicle.isServed = true;
                     } else {
                         break;
                     }
@@ -137,6 +195,68 @@ public class Simulator {
                         break;
                     }
                     taskToProcess = rsu.getHoLTask();
+                }
+            } else if(currentEvent.type == Event.EventType.UAV_ARRIVAL) {
+                double time = currentEvent.time;
+
+                UAV newUAV = new UAV(time, uavCoverageRange);
+                totalUAVs++;
+                activeUAVs.add(newUAV);
+
+                EventScheduler.eventQueue.add(new Event(EventScheduler.events, Event.EventType.UAV_LEAVE, newUAV.getStopTime(), newUAV));
+                EventScheduler.events++;
+
+                System.out.println("MC = " + String.format("%.3f", currentTime)  + " UAV " + newUAV.id + " arrived.");
+
+                for(Vehicle veh : activeVehicles) {
+                    if (veh.isServed) continue;
+                    boolean willContact = (Metrics.contactTime(veh, newUAV) >= 0);
+                    if(!willContact) continue;
+
+                    // if(Metrics.contactTime(veh, newUAV) == Simulator.currentTime) {
+                    //     Task taskToProcess = rsu.getHoLTask();
+                    //     if (taskToProcess == null) break;              
+                    //     releaseOpportunities++;
+                    //     if(taskToProcess != null && veh.isCooperative && veh.canProcessTask(taskToProcess)) {
+                    //         rsu.offloadTaskToVehicle(taskToProcess, veh);
+                    //         tasksOffloaded++;
+                    //         System.out.println(String.format("MC = %.3f UAV at Location %.3f offloaded #Task %d to #Vehicle %d at Location %.3f, queue time = %.5f, service time = %.5f", 
+                    //             taskToProcess.releaseTime, newUAV.getLocation(), taskToProcess.id, veh.id, veh.getLocation(), taskToProcess.queueTime, taskToProcess.serviceTime));
+                    //         veh.isServed = true;
+                    //     }
+                    //     continue;
+                    // }
+
+                    EventScheduler.eventQueue.add(new Event(EventScheduler.events, Event.EventType.VEHICLE_UAV_ENTRANCE, Metrics.contactTime(veh, newUAV), veh, newUAV));
+                    EventScheduler.events++;                   
+                }
+
+            } else if(currentEvent.type == Event.EventType.UAV_LEAVE) { 
+                UAV uav = currentEvent.uav;
+                System.out.println(String.format("MC = %.3f UAV %d arrived above RSU at time %.3f", currentTime, uav.id, Simulator.currentTime));
+                activeUAVs.remove(uav);
+            } else if(currentEvent.type == Event.EventType.VEHICLE_UAV_ENTRANCE) {
+                UAV uav = currentEvent.uav;
+                boolean inContact = (uav.getLocation() - uav.getRSUcontactLocation() <= 0);
+                Vehicle vehicle = currentEvent.vehicle;
+                Task taskToProcess = rsu.getHoLTask();
+
+                if(!inContact || vehicle.isServed || taskToProcess == null) {
+                    previousEventTime = currentEvent.time;
+                    currentEvent = eventScheduler.processNextEvent();
+                    continue;
+                }
+
+                System.out.println("MC = " + String.format("%.3f", currentTime)  + " UAV " + uav.id + " is connected to RSU.");
+                System.out.println("MC = " + String.format("%.3f", currentTime) + " Vehicle " + vehicle.id + " enters UAV " + uav.id + " Coverage Range now!");
+
+                releaseOpportunities++;
+                if(taskToProcess != null && vehicle.isCooperative && vehicle.canProcessTask(taskToProcess)) {
+                    rsu.offloadTaskToVehicle(taskToProcess, vehicle);
+                    tasksOffloaded++;
+                    vehicle.isServed = true;
+                    System.out.println(String.format("MC = %.3f UAV at Location %.3f offloaded #Task %d to #Vehicle %d at Location %.3f, queue time = %.5f, service time = %.5f", 
+                        taskToProcess.releaseTime, uav.getLocation(), taskToProcess.id, vehicle.id, vehicle.getLocation(), taskToProcess.queueTime, taskToProcess.serviceTime));
                 }
             }
             previousEventTime = currentEvent.time;
@@ -156,6 +276,7 @@ public class Simulator {
         System.out.println("Total tasks dropped: " + tasksDropped);
         System.out.println("Total vehicles generated: " + totalVehicles);
         System.out.println("Total release opportunities: " + releaseOpportunities);
+        System.out.println("Total UAVs: " + totalUAVs);
         double mu = tasksOffloaded / totalSimulationTime;
         System.out.println("mu = " + mu);
 
