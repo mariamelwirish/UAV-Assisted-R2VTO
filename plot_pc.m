@@ -1,82 +1,76 @@
-% Generic plotting utility for simulation result files.
-% For every file in Results/*.txt:
-%   - Column 1 is used as x-axis.
-%   - Each remaining column is plotted as a separate y-vs-x tab in one window.
-
+% Compares baseline vs UAV results: overlays mu_base.txt and mu_uav.txt
+% on the same axes, one tab per metric column.
 clear; clc;
 
-resultFiles = dir(fullfile('Results', '*.txt'));
+% --- CHANGED: load the two files explicitly instead of globbing ---
+baseFile = fullfile('Results', 'mu_base.txt');
+uavFile  = fullfile('Results', 'mu_uav.txt');
 
-if isempty(resultFiles)
-	error('No .txt files found in Results folder.');
+if ~isfile(baseFile) || ~isfile(uavFile)
+    error('Need both Results/mu_base.txt and Results/mu_uav.txt.');
 end
+
+baseData = readtable(baseFile, 'VariableNamingRule', 'preserve');
+uavData  = readtable(uavFile,  'VariableNamingRule', 'preserve');
 
 outputDir = 'Plots';
 if ~exist(outputDir, 'dir')
-	mkdir(outputDir);
+    mkdir(outputDir);
 end
 oldPlots = dir(fullfile(outputDir, '*.png'));
 for k = 1:numel(oldPlots)
-	delete(fullfile(oldPlots(k).folder, oldPlots(k).name));
+    delete(fullfile(oldPlots(k).folder, oldPlots(k).name));
 end
 
-mainFig = figure('Name', 'Simulation Plots', 'Position', [100, 100, 1100, 700]);
+mainFig = figure('Name', 'Baseline vs UAV', 'Position', [100, 100, 1100, 700]);
 tabGroup = uitabgroup(mainFig);
 
-for f = 1:numel(resultFiles)
-	filePath = fullfile(resultFiles(f).folder, resultFiles(f).name);
-	data = readtable(filePath, 'VariableNamingRule', 'preserve');
+varNames = baseData.Properties.VariableNames;
+xVar   = baseData.(varNames{1});          % column 1 = x-axis (mu_v), same for both
+xLabel = prettifyName(varNames{1});
 
-	if width(data) < 2
-		warning('Skipping %s: file must contain at least 2 columns.', resultFiles(f).name);
-		continue;
-	end
+% --- CHANGED: one tab per metric, two lines each ---
+for c = 2:width(baseData)
+    yBase = baseData.(varNames{c});
+    yUav  = uavData.(varNames{c});         % same column in the UAV file
 
-	varNames = data.Properties.VariableNames;
-	xVar = data.(varNames{1});
-	xLabel = prettifyName(varNames{1});
+    if ~isnumeric(xVar) || ~isnumeric(yBase) || ~isnumeric(yUav)
+        warning('Skipping non-numeric column %s.', varNames{c});
+        continue;
+    end
 
-	[~, fileStem, ~] = fileparts(resultFiles(f).name);
+    yLabel   = prettifyName(varNames{c});
+    tabTitle = sprintf('%s VS %s', yLabel, xLabel);
+    tab = uitab(tabGroup, 'Title', tabTitle);
+    ax  = axes('Parent', tab);
 
-	for c = 2:width(data)
-		yVar = data.(varNames{c});
+    plot(ax, xVar, yBase, '-o', 'LineWidth', 2, 'MarkerSize', 7); % baseline
+    hold(ax, 'on');
+    plot(ax, xVar, yUav,  '-s', 'LineWidth', 2, 'MarkerSize', 7); % with UAV
+    hold(ax, 'off');
+    grid(ax, 'on');
 
-		if ~isnumeric(xVar) || ~isnumeric(yVar)
-			warning('Skipping %s in %s: non-numeric x or y column.', varNames{c}, resultFiles(f).name);
-			continue;
-		end
+    xlabel(ax, xLabel, 'FontSize', 12);
+    ylabel(ax, yLabel, 'FontSize', 12);
+    title(ax, tabTitle, 'FontSize', 14);
+    set(ax, 'FontSize', 11);
+    legend(ax, {'Baseline (no UAV)', 'With UAV'}, 'Location', 'best');  % CHANGED
 
-		yLabel = prettifyName(varNames{c});
-
-		tabTitle = sprintf('%s VS %s', yLabel, xLabel);
-		tab = uitab(tabGroup, 'Title', sprintf('%s', tabTitle));
-		ax = axes('Parent', tab);
-		plot(ax, xVar, yVar, '-o', 'LineWidth', 2, 'MarkerSize', 7);
-		grid(ax, 'on');
-
-		xlabel(ax, xLabel, 'FontSize', 12);
-		ylabel(ax, yLabel, 'FontSize', 12);
-		title(ax, tabTitle, 'FontSize', 14);
-
-		set(ax, 'FontSize', 11);
-		legend(ax, 'Simulation', 'Location', 'best');
-
-		outputFile = fullfile(outputDir, sprintf('%s VS %s.png', ...
-			sanitizeFileName(yLabel), sanitizeFileName(xLabel)));
-		exportgraphics(ax, outputFile, 'Resolution', 300);
-	end
+    outputFile = fullfile(outputDir, sprintf('%s VS %s.png', ...
+        sanitizeFileName(yLabel), sanitizeFileName(xLabel)));
+    exportgraphics(ax, outputFile, 'Resolution', 300);
 end
 
 function label = prettifyName(rawName)
-	name = regexprep(rawName, '([a-z0-9])([A-Z])', '$1 $2');
-	name = strrep(name, '_', ' ');
-	label = regexprep(name, '\s+', ' ');
-	label = strtrim(label);
+    name = regexprep(rawName, '([a-z0-9])([A-Z])', '$1 $2');
+    name = strrep(name, '_', ' ');
+    label = regexprep(name, '\s+', ' ');
+    label = strtrim(label);
 end
 
 function cleaned = sanitizeFileName(name)
-	cleaned = regexprep(name, '[\\/:*?"<>|]', '_');
-	cleaned = strrep(cleaned, ' ', '_');
-	cleaned = regexprep(cleaned, '_+', '_');
-	cleaned = strtrim(cleaned);
+    cleaned = regexprep(name, '[\\/:*?"<>|]', '_');
+    cleaned = strrep(cleaned, ' ', '_');
+    cleaned = regexprep(cleaned, '_+', '_');
+    cleaned = strtrim(cleaned);
 end

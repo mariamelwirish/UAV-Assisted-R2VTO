@@ -21,6 +21,8 @@ class Vehicle {
     double remainingProcessingCapacity; // = processingCapacity * residenceTime (inst)
     double arrivalLocation;
     boolean isServed;
+    boolean countedOpportunity;
+
 
     Vehicle(double arrivalTime, double processingCapacity, boolean isCooperative) {
         this.id = count++;
@@ -33,6 +35,7 @@ class Vehicle {
         // this.remainingProcessingCapacity = processingCapacity * residenceTime;
         this.arrivalLocation = Simulator.maxPositionVehicle;
         this.isServed = false;
+        this.countedOpportunity = false;
 
         // System.out.println(String.format("MC = %10.5f: #Vehicle %d%s, processing capacity = %.1e, speed = %.5f, speed m/s =%.5f, residence time = %f, departure time = %.5f", 
         //     this.arrivalTime, this.id, (isCooperative ? " cooperative" : " non-cooperative"), 
@@ -42,15 +45,24 @@ class Vehicle {
     double generateSpeed() {
         double speed;
         do {
-            speed = Simulator.avgVehicleSpeed + Simulator.stdVehicleSpeed * Simulator.rng.nextGaussian();
+            speed = Simulator.avgVehicleSpeed + Simulator.stdVehicleSpeed * Simulator.vehicleRng.nextGaussian();
         } while (speed < Simulator.minVehicleSpeed || speed > Simulator.maxVehicleSpeed);
         return speed;
     }
 
     boolean canProcessTask(Task task) {
-        double location = getLocation();
-        System.out.println("Vehicle " + this.id + " Location " + location);
-        return task.size / processingCapacity <= ((location + Simulator.rsuCoverageRange / 2) / speed);
+        double window;
+        if (Simulator.useUAV) {
+            window = (getLocation() + Simulator.rsuCoverageRange / 2) / speed;
+        } else {
+            window = Simulator.rsuCoverageRange / speed;
+        }
+        return task.size / processingCapacity <= window;
+        
+        // double location = getLocation();
+        // System.out.println("Vehicle " + this.id + " Location " + location);
+        // return task.size / processingCapacity <= ((location + Simulator.rsuCoverageRange / 2) / speed);
+
         // return task.size <= remainingProcessingCapacity;
         // return task.size / processingCapacity <= residenceTime;
     }
@@ -140,7 +152,7 @@ class RSU {
 
     void admitTask(Task task) {
         if (isBufferFull()) {
-            System.out.println("Buffer is full. Cannot admit task " + task.id);
+            Simulator.log("Buffer is full. Cannot admit task " + task.id);
             return;
         }
         buffer.add(task);
@@ -223,7 +235,7 @@ class UAV {
     double generateSpeed() {
         double speed;
         do {
-            speed = Simulator.avgUAVSpeed + Simulator.stdUAVSpeed * Simulator.rng.nextGaussian();
+            speed = Simulator.avgUAVSpeed + Simulator.stdUAVSpeed * Simulator.uavRng.nextGaussian();
         } while (speed < Simulator.minUAVSpeed || speed > Simulator.maxUAVSpeed);
         return speed;
     }

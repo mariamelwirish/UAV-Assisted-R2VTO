@@ -13,17 +13,19 @@ public class EventScheduler {
     }
 
     void initialize() { 
-        double firstVehicleArrival = Metrics.exp(Simulator.rng, Simulator.vehicleArrivalRate); 
+        double firstVehicleArrival = Metrics.exp(Simulator.vehicleRng, Simulator.vehicleArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.VEHICLE_ARRIVAL, firstVehicleArrival));
         this.events++;
 
-        double firstTaskArrival = Metrics.exp(Simulator.rng, Simulator.taskArrivalRate);
+        double firstTaskArrival = Metrics.exp(Simulator.taskRng, Simulator.taskArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.TASK_ARRIVAL, firstTaskArrival));
         this.events++;
 
-        double firstUAVArrival = Metrics.exp(Simulator.rng, Simulator.UAVArrivalRate);
-        eventQueue.add(new Event(this.events, Event.EventType.UAV_ARRIVAL, firstUAVArrival));
-        this.events++;
+        if(Simulator.useUAV) {
+            double firstUAVArrival = Metrics.exp(Simulator.uavRng, Simulator.UAVArrivalRate);
+            eventQueue.add(new Event(this.events, Event.EventType.UAV_ARRIVAL, firstUAVArrival));
+            this.events++;
+        }
     }
 
     boolean isEmpty() {
@@ -31,19 +33,19 @@ public class EventScheduler {
     }
 
     void scheduleNextTaskArrival(Event currentEvent) {
-        double nextTaskArrival = currentEvent.time + Metrics.exp(Simulator.rng, Simulator.taskArrivalRate);
+        double nextTaskArrival = currentEvent.time + Metrics.exp(Simulator.taskRng, Simulator.taskArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.TASK_ARRIVAL, nextTaskArrival));
         this.events++;
     }
 
     void scheduleNextVehicleArrival(Event currentEvent) {
-        double nextVehicleArrival = currentEvent.time + Metrics.exp(Simulator.rng, Simulator.vehicleArrivalRate);
+        double nextVehicleArrival = currentEvent.time + Metrics.exp(Simulator.vehicleRng, Simulator.vehicleArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.VEHICLE_ARRIVAL, nextVehicleArrival));
         this.events++;
     }
 
     void scheduleNextUAVArrival(Event currentEvent) {
-        double nextUAVArrival = currentEvent.time + Metrics.exp(Simulator.rng, Simulator.UAVArrivalRate);
+        double nextUAVArrival = currentEvent.time + Metrics.exp(Simulator.uavRng, Simulator.UAVArrivalRate);
         eventQueue.add(new Event(this.events, Event.EventType.UAV_ARRIVAL, nextUAVArrival));
         this.events++;
     }
