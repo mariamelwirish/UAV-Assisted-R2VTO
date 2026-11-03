@@ -51,7 +51,7 @@ public class Simulator {
     static long minTaskSize = 100_000_000L; // (inst)
     static long maxTaskSize = 5_000_000_000L; // (inst)
     // static long maxNumTasks = 1_000_000L; // (tasks)
-    static long maxNumTasks = 100_000L; // (tasks)
+    static long maxNumTasks = 100; // (tasks)
 
     // RSU-related data.
     static int rsuBufferCapacity = 50; // (tasks)

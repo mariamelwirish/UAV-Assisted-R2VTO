@@ -1,9 +1,4 @@
-clear; clc; close all;
-
-% ================== SETTINGS: edit only these two lines ==================
-experiment = '1_pr_vs_cmax';
-xLabelText = 'C_{max} (\times10^8 inst/s)';
-% =========================================================================
+function compare(experiment, xLabelText)
 
 % ---------- Read the results ----------
 file = fullfile('Results', [experiment '.csv']);
@@ -73,4 +68,12 @@ function t = tCritical(df)
     else
         t = 1.96;
     end
+end
+
+fprintf('Saved %d plots to %s\n', numel(metrics), outDir);
+end                                   % <-- closes compare
+
+% ---------- Helper: t-value for a 95% CI (no toolbox needed) ----------
+function t = tCritical(df)
+    ...
 end
